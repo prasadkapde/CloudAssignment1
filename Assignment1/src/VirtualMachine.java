@@ -81,8 +81,8 @@ public class VirtualMachine {
 
 	}
 
-	public String attachPersistentDataVolume(String instanceId,
-			String availibilityZone) throws IOException {
+	public String createDataVolume(String instanceId, String availibilityZone)
+			throws IOException {
 		CreateVolumeRequest cvr = new CreateVolumeRequest();
 
 		cvr.setAvailabilityZone(availibilityZone);
@@ -224,5 +224,14 @@ public class VirtualMachine {
 		TerminateInstancesRequest terminateInstancesRequest = new TerminateInstancesRequest();
 		terminateInstancesRequest.withInstanceIds(instanceId);
 		ec2.terminateInstances(terminateInstancesRequest);
+	}
+
+	public void attachDataVolume(String volumeId, String instanceId) {
+		AttachVolumeRequest avr = new AttachVolumeRequest();
+		avr.setVolumeId(volumeId);
+		avr.setInstanceId(instanceId);
+		avr.setDevice("/dev/sdf");
+		ec2.attachVolume(avr);
+		System.out.println("Attached volume id: " + volumeId);
 	}
 }
