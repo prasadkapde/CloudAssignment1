@@ -1,16 +1,20 @@
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.GregorianCalendar;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.TimeZone;
 
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.PropertiesCredentials;
-import com.amazonaws.services.autoscaling.AmazonAutoScalingClient;
-import com.amazonaws.services.autoscaling.model.AutoScalingGroup;
-import com.amazonaws.services.autoscaling.model.CreateAutoScalingGroupRequest;
-import com.amazonaws.services.autoscaling.model.PutScalingPolicyRequest;
+import com.amazonaws.services.cloudwatch.AmazonCloudWatchClient;
+import com.amazonaws.services.cloudwatch.model.Datapoint;
+import com.amazonaws.services.cloudwatch.model.Dimension;
+import com.amazonaws.services.cloudwatch.model.GetMetricStatisticsRequest;
+import com.amazonaws.services.cloudwatch.model.GetMetricStatisticsResult;
 import com.amazonaws.services.ec2.AmazonEC2;
 import com.amazonaws.services.ec2.AmazonEC2Client;
 import com.amazonaws.services.ec2.model.AttachVolumeRequest;
@@ -26,7 +30,9 @@ import com.amazonaws.services.ec2.model.Instance;
 import com.amazonaws.services.ec2.model.Reservation;
 import com.amazonaws.services.ec2.model.RunInstancesRequest;
 import com.amazonaws.services.ec2.model.RunInstancesResult;
+import com.amazonaws.services.ec2.model.StopInstancesRequest;
 import com.amazonaws.services.ec2.model.Tag;
+import com.amazonaws.services.ec2.model.TerminateInstancesRequest;
 import com.amazonaws.services.s3.AmazonS3Client;
 
 public class VirtualMachine {
@@ -164,19 +170,59 @@ public class VirtualMachine {
 				.getInstances().get(0).getState().getName().equals("running"));
 
 	}
-	public void AutoScale() throws IOException{
+
+	public double cloudWatch(String instanceId) throws IOException {
+		double average = 0;
 		AWSCredentials credentials = new PropertiesCredentials(
-				StartDemo.class.getResourceAsStream("AwsCredentials.properties"));
-		AmazonAutoScalingClient amazonAutoScalingClient = new AmazonAutoScalingClient();
-		PutScalingPolicyRequest policy = new PutScalingPolicyRequest();
-		policy.setAdjustmentType("ChangeInCapacity");
-		policy.setAutoScalingGroupName("Test Auto Scale");
-		policy.setScalingAdjustment(1);
-		policy.setPolicyName("Test Auto Scale");
-		amazonAutoScalingClient.putScalingPolicy(policy);
-		
-		
-		
-		
+				VirtualMachine.class
+						.getResourceAsStream("AwsCredentials.properties"));
+
+		AmazonCloudWatchClient cloudWatch = new AmazonCloudWatchClient(
+				credentials);
+
+		GetMetricStatisticsRequest statRequest = new GetMetricStatisticsRequest();
+		statRequest.setNamespace("AWS/EC2"); // namespace
+		statRequest.setPeriod(60); // period of data
+		ArrayList<String> stats = new ArrayList<String>();
+		stats.add("Average");
+		statRequest.setStatistics(stats);
+		statRequest.setMetricName("CPUUtilization");
+		GregorianCalendar calendar = new GregorianCalendar(
+				TimeZone.getTimeZone("UTC"));
+		calendar.add(GregorianCalendar.SECOND,
+				-1 * calendar.get(GregorianCalendar.SECOND)); // 1 second
+																// ago
+		Date endTime = calendar.getTime();
+		calendar.add(GregorianCalendar.MINUTE, -10); // 10 minutes ago
+		Date startTime = calendar.getTime();
+		statRequest.setStartTime(startTime);
+		statRequest.setEndTime(endTime);
+		ArrayList<Dimension> dimensions = new ArrayList<Dimension>();
+		dimensions.add(new Dimension().withName("InstanceId").withValue(
+				instanceId));
+		statRequest.setDimensions(dimensions);
+
+		// get statistics
+		GetMetricStatisticsResult statResult = cloudWatch
+				.getMetricStatistics(statRequest);
+
+		// display
+		System.out.println(statResult.toString());
+		List<Datapoint> dataList = statResult.getDatapoints();
+		Double averageCPU = null;
+		Date timeStamp = null;
+		for (Datapoint data : dataList) {
+			averageCPU = data.getAverage();
+			timeStamp = data.getTimestamp();
+			average = averageCPU;
+		}
+
+		return average;
+	}
+
+	public void terminateInstance(String instanceId) {
+		TerminateInstancesRequest terminateInstancesRequest = new TerminateInstancesRequest();
+		terminateInstancesRequest.withInstanceIds(instanceId);
+		ec2.terminateInstances(terminateInstancesRequest);
 	}
 }

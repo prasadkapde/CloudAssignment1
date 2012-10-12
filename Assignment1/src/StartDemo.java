@@ -1,14 +1,10 @@
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.PropertiesCredentials;
-import com.amazonaws.services.cloudwatch.AmazonCloudWatchClient;
 import com.amazonaws.services.ec2.model.Instance;
-import com.amazonaws.services.autoscaling.*;
-import com.amazonaws.services.autoscaling.model.CreateAutoScalingGroupRequest;
 
 public class StartDemo {
 	public static void main(String[] args) throws IOException,
@@ -21,6 +17,7 @@ public class StartDemo {
 
 		List<Instance> instanceList = vm.getInstanceList();
 		Map<String, String> volumeIdMap = new HashMap<String, String>();
+		Map<String, String> AMI_IdMap = new HashMap<String, String>();
 
 		// ///////////////////////////////////////////////////////////////////
 		// Create and attach volumes on these instances //
@@ -37,15 +34,57 @@ public class StartDemo {
 		}
 
 		Thread.sleep(5000);
-		// ///////////////////////////////////////////////////////////////////
+		// /////////////////////////////////////////////////////////////////////
+		// Check CPU utilization and create AMI for idle VMs //
+		// /////////////////////////////////////////////////////////////////////
+
+		boolean flag = true;
+		String instanceId = null;
+		while (flag) {
+			for (Instance ins : instanceList) {
+				instanceId = ins.getInstanceId();
+				double cpuUtilization = vm.cloudWatch(instanceId);
+				if (cpuUtilization < 5.0) {
+					String volumeId = volumeIdMap.get(instanceId);
+					vm.detachDataVolume(instanceId, volumeId);
+					String imageId = vm.createAMI(instanceId);
+					AMI_IdMap.put(instanceId, imageId);
+					vm.terminateInstance(instanceId);
+					flag = false;
+				}
+			}
+		}
+		instanceList.remove(instanceId);
+
+		// ////////////////////////////////////////////////////////////////////////
+		// After 5 Pm //
+		// ////////////////////////////////////////////////////////////////////////
+
+		// ///////////////////////////////////////////////////////////////////////
 		// Detach Volumes //
-		// ///////////////////////////////////////////////////////////////////
+		// ///////////////////////////////////////////////////////////////////////
 
 		for (Instance ins : instanceList) {
 			String volumeId = volumeIdMap.get(ins.getInstanceId());
 			vm.detachDataVolume(ins.getInstanceId(), volumeId);
 		}
-		// ///////////////////////////////////////////////////////////////////
 
+		// ///////////////////////////////////////////////////////////////////////
+		// Create Snapshot.
+		// ////////////////////////////////////////////////////////////////////////
+
+		for (Instance ins : instanceList) {
+			String amiId = vm.createAMI(ins.getInstanceId());
+			AMI_IdMap.put(ins.getInstanceId(), amiId);
+			vm.terminateInstance(ins.getInstanceId());
+		}
+
+		// //////////////////////////////////////////////////////////////////////////
+		// Next Day //
+		// /////////////////////////////////////////////////////////////////////////
+
+		for (Map.Entry<String, String> entry : AMI_IdMap.entrySet()) {
+			vm.createVirtualMachine(entry.getValue(), 1);
+		}
 	}
 }
